@@ -4,7 +4,7 @@ This repository contains the code for the **CareerConnectExam** project. The app
 
 ## Models
 
-The models used in this project will be found in the following **Discord link**:
+The models used in this project will be found in the following https://discord.com/channels/1366792922887880947/1366799038648684636/1369337753765941298:
 
 [Insert Discord Link Here]
 
