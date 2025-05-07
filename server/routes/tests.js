@@ -76,39 +76,84 @@ router.post(
 
       await test.save();
 
+      // Convert buffer to string and parse CSV manually for better control
+      const csvString = doc.buffer.toString("utf8");
+
+      // Parse CSV content manually
+      const lines = csvString.split("\n").filter((line) => line.trim());
+      const headers = lines[0].split(",").map((h) => h.trim());
+
+      // Create questions array from parsed CSV data
       const questions = [];
-      const stream = Readable.from(doc.buffer).pipe(csv());
 
-      stream.on("data", (row) => {
-        questions.push({
-          test_id,
-          qid: questions.length + 1,
-          question: row.question,
-          options: { a: row.a, b: row.b, c: row.c, d: row.d },
-          answer: row.answer,
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue; // Skip empty lines
+
+        // Split the line and map to an object
+        const row = {};
+        const values = lines[i].split(",").map((v) => v.trim());
+
+        // Map values to headers
+        headers.forEach((header, index) => {
+          if (index < values.length) {
+            row[header] = values[index];
+          }
         });
-      });
 
-      stream.on("end", async () => {
-        try {
-          await Question.insertMany(questions);
-          user.exam_credits -= 1;
-          await user.save();
-          res.json({ test_id });
-        } catch (err) {
-          res.status(500).json({
-            message: "Error inserting questions into the database",
-            error: err.message,
-          });
+        // Debug log the parsed row
+        console.log("Parsed row:", row);
+
+        // Map CSV data to question schema
+        const questionObj = {
+          test_id,
+          qid: i,
+          question: row["Question"],
+          options: {
+            a: row["Option A"],
+            b: row["Option B"],
+            c: row["Option C"],
+            d: row["Option D"],
+          },
+          answer: row["Correct Answer"],
+        };
+
+        // Validate that required fields are present
+        if (
+          questionObj.question &&
+          questionObj.options.a &&
+          questionObj.options.b &&
+          questionObj.options.c &&
+          questionObj.options.d &&
+          questionObj.answer
+        ) {
+          questions.push(questionObj);
+        } else {
+          console.error("Invalid question data:", questionObj);
         }
-      });
+      }
 
-      stream.on("error", (err) => {
-        res
-          .status(500)
-          .json({ message: "Error parsing CSV file", error: err.message });
-      });
+      // Check if we have valid questions
+      if (questions.length === 0) {
+        return res.status(400).json({
+          message: "No valid questions found in CSV. Please check the format.",
+        });
+      }
+
+      try {
+        // Insert valid questions to database
+        await Question.insertMany(questions);
+        user.exam_credits -= 1;
+        await user.save();
+        res.json({ test_id, questionCount: questions.length });
+      } catch (err) {
+        console.error("Error inserting questions:", err);
+        res.status(500).json({
+          message: "Error inserting questions into the database",
+          error: err.message,
+        });
+      }
     } catch (err) {
+      console.error("Unexpected error:", err);
       res
         .status(500)
         .json({ message: "Unexpected error occurred", error: err.message });

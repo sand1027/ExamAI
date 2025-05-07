@@ -12,7 +12,7 @@ const ProctoringLogSchema = new mongoose.Schema({
     enum: ["video_feed", "audio_feed", "other"],
     required: true,
   },
-  details: { type: Object }, // imgData, voice_db, etc.
+  details: { type: Object },
   timestamp: { type: Date, default: Date.now },
 });
 

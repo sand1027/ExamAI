@@ -1,60 +1,67 @@
-import React, { useState, useEffect, useContext } from "react";
-import { Container, Form, Button, Table, Alert } from "react-bootstrap";
-import axios from "axios";
-import { AuthContext } from "../context/AuthContext";
-import { useForm } from "react-hook-form";
+import React, { useState, useEffect, useContext } from 'react';
+import { Container, Form, Button, Table, Alert } from 'react-bootstrap';
+import axios from 'axios';
+import { AuthContext } from '../context/AuthContext';
+import { useForm } from 'react-hook-form';
 
 function InsertMarks() {
   const { user } = useContext(AuthContext);
   const { register, handleSubmit, errors } = useForm();
   const [testIds, setTestIds] = useState([]);
-  const [selectedTestId, setSelectedTestId] = useState("");
+  const [selectedTestId, setSelectedTestId] = useState('');
   const [students, setStudents] = useState([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchTestIds = async () => {
       try {
-        const res = await axios.get("/api/tests/history", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        const res = await axios.get('ttp://localhost:5000/api/tests/history', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         });
         setTestIds(
           res.data.exams
-            .filter((e) => e.test_type !== "objective")
-            .map((e) => e.test_id)
+            .filter(e => e.test_type !== 'objective')
+            .map(e => e.test_id)
         );
       } catch (err) {
-        setError(err.response?.data?.message || "Failed to load test IDs");
+        setError(err.response?.data?.message || 'Failed to load test IDs');
       }
     };
-    if (user && user.user_type === "professor") {
+    if (user && user.user_type === 'professor') {
       fetchTestIds();
     }
   }, [user]);
 
   const fetchStudents = async () => {
     try {
-      const res = await axios.get(`/api/tests/students/${selectedTestId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const res = await axios.get(
+        `ttp://localhost:5000/api/tests/students/${selectedTestId}`,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        }
+      );
       setStudents(res.data.students);
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to load students");
+      setError(err.response?.data?.message || 'Failed to load students');
     }
   };
 
-  const onSubmit = async (data) => {
+  const onSubmit = async data => {
     try {
-      await axios.post(`/api/tests/marks/${selectedTestId}`, data, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      await axios.post(
+        `ttp://localhost:5000/api/tests/marks/${selectedTestId}`,
+        data,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        }
+      );
       fetchStudents();
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to insert marks");
+      setError(err.response?.data?.message || 'Failed to insert marks');
     }
   };
 
-  if (!user || user.user_type !== "professor") {
+  if (!user || user.user_type !== 'professor') {
     return (
       <Container>
         <h2>Unauthorized Access</h2>
@@ -67,7 +74,7 @@ function InsertMarks() {
       <h2>Insert Marks</h2>
       {error && <Alert variant="danger">{error}</Alert>}
       <Form
-        onSubmit={(e) => {
+        onSubmit={e => {
           e.preventDefault();
           fetchStudents();
         }}
@@ -77,10 +84,10 @@ function InsertMarks() {
           <Form.Control
             as="select"
             value={selectedTestId}
-            onChange={(e) => setSelectedTestId(e.target.value)}
+            onChange={e => setSelectedTestId(e.target.value)}
           >
             <option value="">Select a test</option>
-            {testIds.map((tid) => (
+            {testIds.map(tid => (
               <option key={tid} value={tid}>
                 {tid}
               </option>
@@ -101,7 +108,7 @@ function InsertMarks() {
               </tr>
             </thead>
             <tbody>
-              {students.map((s) => (
+              {students.map(s => (
                 <tr key={s.email}>
                   <td>{s.email}</td>
                   <td>

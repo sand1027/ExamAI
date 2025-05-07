@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext } from 'react';
 import {
   Container,
   Card,
@@ -7,44 +7,48 @@ import {
   Alert,
   Table,
   Modal,
-} from "react-bootstrap";
-import axios from "axios";
-import Proctoring from "../components/Proctoring";
-import { AuthContext } from "../context/AuthContext";
-import { useParams, useNavigate } from "react-router-dom";
+} from 'react-bootstrap';
+import axios from 'axios';
+import Proctoring from '../components/Proctoring';
+import { AuthContext } from '../context/AuthContext';
+import { useParams, useNavigate } from 'react-router-dom';
 
 function TestQuiz() {
   const { testid } = useParams();
   const { user } = useContext(AuthContext);
-  const navigate = useNavigate(); // Replaced useHistory with useNavigate
+  const navigate = useNavigate();
   const [questions, setQuestions] = useState([]);
   const [currentQid, setCurrentQid] = useState(1);
   const [markedAnswers, setMarkedAnswers] = useState({});
   const [bookmarks, setBookmarks] = useState(new Set());
   const [timeLeft, setTimeLeft] = useState(0);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
-  const [calcValue, setCalcValue] = useState("");
+  const [calcValue, setCalcValue] = useState('');
 
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
-        const res = await axios.get(`/api/student/test/${testid}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        });
-        // Randomize questions
+        const res = await axios.get(
+          `http://localhost:5000/api/student/test/${testid}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+            },
+          }
+        );
         const shuffled = res.data.questions.sort(() => Math.random() - 0.5);
         setQuestions(shuffled);
         setTimeLeft(res.data.duration);
       } catch (err) {
-        setError(err.response?.data?.message || "Failed to load test");
+        setError(err.response?.data?.message || 'Failed to load test');
       }
     };
     fetchQuestions();
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => {
+      setTimeLeft(prev => {
         if (prev <= 0) {
           clearInterval(timer);
           submitTest();
@@ -57,13 +61,13 @@ function TestQuiz() {
     return () => clearInterval(timer);
   }, [testid]);
 
-  const handleAnswer = async (ans) => {
+  const handleAnswer = async ans => {
     try {
       await axios.post(
-        "/api/student/test",
-        { flag: "mark", qid: questions[currentQid - 1].qid, ans, testid },
+        'http://localhost:5000/api/student/test',
+        { flag: 'mark', qid: questions[currentQid - 1].qid, ans, testid },
         {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }
       );
       setMarkedAnswers({
@@ -71,7 +75,7 @@ function TestQuiz() {
         [questions[currentQid - 1].qid]: ans,
       });
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to save answer");
+      setError(err.response?.data?.message || 'Failed to save answer');
     }
   };
 
@@ -93,33 +97,33 @@ function TestQuiz() {
   const confirmSubmit = async () => {
     try {
       await axios.post(
-        "/api/student/test",
-        { flag: "submit", testid },
+        'http://localhost:5000/api/student/test',
+        { flag: 'submit', testid },
         {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }
       );
-      navigate("/student-index"); // Replaced history.push with navigate
+      navigate('/student-index');
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to submit test");
+      setError(err.response?.data?.message || 'Failed to submit test');
     }
   };
 
-  const handleCalculator = (value) => {
-    if (value === "=") {
+  const handleCalculator = value => {
+    if (value === '=') {
       try {
         setCalcValue(eval(calcValue).toString());
       } catch {
-        setCalcValue("Error");
+        setCalcValue('Error');
       }
-    } else if (value === "C") {
-      setCalcValue("");
+    } else if (value === 'C') {
+      setCalcValue('');
     } else {
       setCalcValue(calcValue + value);
     }
   };
 
-  if (!user || user.user_type !== "student") {
+  if (!user || user.user_type !== 'student') {
     return (
       <Container>
         <h2>Unauthorized Access</h2>
@@ -129,7 +133,7 @@ function TestQuiz() {
 
   return (
     <Container>
-      <Proctoring testid={testid} />
+      <Proctoring testId={testid} token={localStorage.getItem('token')} />
       <h2>Objective Test</h2>
       {error && <Alert variant="danger">{error}</Alert>}
       {questions.length > 0 && (
@@ -137,7 +141,7 @@ function TestQuiz() {
           <Card.Body>
             <Card.Title>{questions[currentQid - 1].question}</Card.Title>
             <Form>
-              {["a", "b", "c", "d"].map((option) => (
+              {['a', 'b', 'c', 'd'].map(option => (
                 <Form.Check
                   key={option}
                   type="radio"
@@ -155,24 +159,24 @@ function TestQuiz() {
               onClick={toggleBookmark}
               variant={
                 bookmarks.has(questions[currentQid - 1].qid)
-                  ? "warning"
-                  : "outline-warning"
+                  ? 'warning'
+                  : 'outline-warning'
               }
               className="mt-3"
             >
               {bookmarks.has(questions[currentQid - 1].qid)
-                ? "Unbookmark"
-                : "Bookmark"}
+                ? 'Unbookmark'
+                : 'Bookmark'}
             </Button>
             <Button
-              onClick={() => setCurrentQid((prev) => Math.max(1, prev - 1))}
+              onClick={() => setCurrentQid(prev => Math.max(1, prev - 1))}
               className="mt-3 ml-2"
             >
               Previous
             </Button>
             <Button
               onClick={() =>
-                setCurrentQid((prev) => Math.min(questions.length, prev + 1))
+                setCurrentQid(prev => Math.min(questions.length, prev + 1))
               }
               className="mt-3 ml-2"
             >
@@ -200,23 +204,23 @@ function TestQuiz() {
             <Form.Control value={calcValue} readOnly />
             <div className="mt-2">
               {[
-                "1",
-                "2",
-                "3",
-                "+",
-                "4",
-                "5",
-                "6",
-                "-",
-                "7",
-                "8",
-                "9",
-                "*",
-                "0",
-                ".",
-                "=",
-                "/",
-              ].map((val) => (
+                '1',
+                '2',
+                '3',
+                '+',
+                '4',
+                '5',
+                '6',
+                '-',
+                '7',
+                '8',
+                '9',
+                '*',
+                '0',
+                '.',
+                '=',
+                '/',
+              ].map(val => (
                 <Button
                   key={val}
                   onClick={() => handleCalculator(val)}
@@ -226,7 +230,7 @@ function TestQuiz() {
                 </Button>
               ))}
               <Button
-                onClick={() => handleCalculator("C")}
+                onClick={() => handleCalculator('C')}
                 variant="danger"
                 className="m-1"
               >
@@ -244,8 +248,8 @@ function TestQuiz() {
                 key={q.qid}
                 onClick={() => setCurrentQid(i + 1)}
                 style={{
-                  cursor: "pointer",
-                  background: bookmarks.has(q.qid) ? "yellow" : "",
+                  cursor: 'pointer',
+                  background: bookmarks.has(q.qid) ? 'yellow' : '',
                 }}
               >
                 Q{i + 1}

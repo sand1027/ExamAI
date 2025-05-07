@@ -7,43 +7,86 @@ const User = require("../models/User");
 const sendEmail = require("../utils/email");
 const { verifyFace } = require("../utils/faceRecognition");
 const auth = require("../middleware/auth");
+const Otp = require("../models/Otp"); //
+const tempUsers = {};
 
-// Register
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, user_type, user_image } = req.body;
-    let user = await User.findOne({ email });
+
+    // Validate required fields
+    if (!name || !email || !password || !user_type) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    // Check if user already exists
+    let user = await User.findOne({ email: email.toLowerCase() });
     if (user) return res.status(400).json({ message: "User already exists" });
 
+    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const tempUser = {
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Store OTP and user data in the database
+    const otpEntry = new Otp({
+      email: email.toLowerCase(),
+      otp,
+      password: hashedPassword,
       name,
-      email,
-      password: await bcrypt.hash(password, 10),
       user_type,
       user_image,
-      otp,
-    };
+    });
+    await otpEntry.save();
 
+    // Send OTP to the user via email
     await sendEmail(email, "Verify your email", `Your OTP is ${otp}`);
-    res.json({ tempUser });
+    res.json({ message: "OTP sent to your email", email: email.toLowerCase() });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("Register error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
-// Verify OTP
 router.post("/verify-otp", async (req, res) => {
   try {
-    const { email, otp, tempUser } = req.body;
-    if (tempUser.otp !== otp)
-      return res.status(400).json({ message: "Invalid OTP" });
+    const { email, otp } = req.body;
+    const userEmail = email.toLowerCase();
 
-    const user = new User(tempUser);
+    // Fetch the OTP from the database
+    const otpEntry = await Otp.findOne({ email: userEmail });
+    if (!otpEntry) {
+      return res
+        .status(400)
+        .json({ message: "OTP has expired or does not exist" });
+    }
+
+    // Check OTP and expiry
+    const timeDifference = Date.now() - otpEntry.createdAt;
+    if (otpEntry.otp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+    if (timeDifference > 10 * 60 * 1000) {
+      return res.status(400).json({ message: "OTP has expired" });
+    }
+
+    // Create the user with data from OTP storage
+    const user = new User({
+      name: otpEntry.name,
+      email: userEmail,
+      password: otpEntry.password,
+      user_type: otpEntry.user_type,
+      user_image: otpEntry.user_image,
+    });
+
     await user.save();
+
+    // Delete OTP after successful registration
+    await Otp.deleteOne({ email: userEmail });
+
     res.json({ message: "Registration successful" });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("OTP verification error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

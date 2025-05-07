@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useContext } from "react";
-import { Container, Form, Button, Alert } from "react-bootstrap";
-import axios from "axios";
-import { AuthContext } from "../context/AuthContext";
-import { useForm } from "react-hook-form"; // ✅ FIXED: Imported useForm
+import React, { useState, useEffect, useContext } from 'react';
+import { Container, Form, Button, Alert } from 'react-bootstrap';
+import axios from 'axios';
+import { AuthContext } from '../context/AuthContext';
+import { useForm } from 'react-hook-form'; // ✅ FIXED: Imported useForm
 
 function ShareExam() {
   const { user } = useContext(AuthContext);
@@ -13,40 +13,44 @@ function ShareExam() {
   } = useForm(); // ✅ useForm destructured properly
 
   const [testIds, setTestIds] = useState([]);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchTestIds = async () => {
       try {
-        const res = await axios.get("/api/tests/history", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        const res = await axios.get('http://localhost:5000/api/tests/history', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         });
-        setTestIds(res.data.exams.map((e) => e.test_id));
+        setTestIds(res.data.exams.map(e => e.test_id));
       } catch (err) {
-        setError(err.response?.data?.message || "Failed to load test IDs");
+        setError(err.response?.data?.message || 'Failed to load test IDs');
       }
     };
 
-    if (user && user.user_type === "professor") {
+    if (user && user.user_type === 'professor') {
       fetchTestIds();
     }
   }, [user]);
 
-  const onSubmit = async (data) => {
+  const onSubmit = async data => {
     try {
-      const res = await axios.post("/api/tests/share", data, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const res = await axios.post(
+        'http://localhost:5000/api/tests/share',
+        data,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        }
+      );
       setMessage(res.data.message);
-      setError("");
+      setError('');
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to share exam");
-      setMessage("");
+      setError(err.response?.data?.message || 'Failed to share exam');
+      setMessage('');
     }
   };
 
-  if (!user || user.user_type !== "professor") {
+  if (!user || user.user_type !== 'professor') {
     return (
       <Container className="mt-5">
         <h2>Unauthorized Access</h2>
@@ -65,10 +69,10 @@ function ShareExam() {
           <Form.Label>Test ID</Form.Label>
           <Form.Control
             as="select"
-            {...register("test_id", { required: true })}
+            {...register('test_id', { required: true })}
           >
             <option value="">Select a test</option>
-            {testIds.map((tid) => (
+            {testIds.map(tid => (
               <option key={tid} value={tid}>
                 {tid}
               </option>
@@ -84,7 +88,7 @@ function ShareExam() {
           <Form.Control
             type="text"
             placeholder="e.g. user1@example.com, user2@example.com"
-            {...register("emails", { required: true })}
+            {...register('emails', { required: true })}
           />
           {errors.emails && (
             <small className="text-danger">Emails are required</small>

@@ -30,6 +30,7 @@ dist-ssr
 
 # face-api-model
 .face-api-models/*
+.face-api.js/*
 
 # Models in the public folder of frontend
 frontend/public/models/
