@@ -1,31 +1,46 @@
-import React, { useState, useContext } from "react";
-import { Container, Form, Button, Alert } from "react-bootstrap";
-import axios from "axios";
-import { AuthContext } from "../context/AuthContext";
-import { useForm } from "react-hook-form";
+import React, { useState, useContext } from 'react';
+import { Container, Form, Button, Alert } from 'react-bootstrap';
+import axios from 'axios';
+import { AuthContext } from '../context/AuthContext';
+import { useForm } from 'react-hook-form';
 
 function ReportProblem() {
   const { user } = useContext(AuthContext);
-  const { register, handleSubmit, errors } = useForm();
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    reset,
+  } = useForm();
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const onSubmit = async (data) => {
+  const onSubmit = async data => {
+    setLoading(true);
+    setMessage('');
+    setError('');
+
     try {
-      const res = await axios.post("/api/support/report", data, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const res = await axios.post(
+        'http://localhost:5000/api/support/report',
+        data,
+        {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        }
+      );
       setMessage(res.data.message);
-      setError("");
+      reset();
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to report problem");
-      setMessage("");
+      setError(err.response?.data?.message || 'Failed to report problem');
+    } finally {
+      setLoading(false);
     }
   };
 
   if (!user) {
     return (
-      <Container>
+      <Container className="mt-5">
         <h2>Unauthorized Access</h2>
       </Container>
     );
@@ -37,29 +52,35 @@ function ReportProblem() {
       {message && <Alert variant="success">{message}</Alert>}
       {error && <Alert variant="danger">{error}</Alert>}
       <Form onSubmit={handleSubmit(onSubmit)}>
-        <Form.Group>
+        <Form.Group className="mb-3">
           <Form.Label>Subject</Form.Label>
           <Form.Control
             type="text"
-            {...register("subject", { required: true })}
+            placeholder="Enter subject"
+            {...register('subject', { required: 'Subject is required' })}
+            isInvalid={!!errors.subject}
           />
-          {errors.subject && (
-            <span className="text-danger">Subject is required</span>
-          )}
+          <Form.Control.Feedback type="invalid">
+            {errors.subject?.message}
+          </Form.Control.Feedback>
         </Form.Group>
-        <Form.Group>
+        <Form.Group className="mb-3">
           <Form.Label>Description</Form.Label>
           <Form.Control
             as="textarea"
             rows={5}
-            {...register("description", { required: true })}
+            placeholder="Describe the problem"
+            {...register('description', {
+              required: 'Description is required',
+            })}
+            isInvalid={!!errors.description}
           />
-          {errors.description && (
-            <span className="text-danger">Description is required</span>
-          )}
+          <Form.Control.Feedback type="invalid">
+            {errors.description?.message}
+          </Form.Control.Feedback>
         </Form.Group>
-        <Button type="submit" variant="primary">
-          Submit Report
+        <Button type="submit" variant="primary" disabled={loading}>
+          {loading ? 'Submitting...' : 'Submit Report'}
         </Button>
       </Form>
     </Container>

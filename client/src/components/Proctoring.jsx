@@ -1,129 +1,96 @@
-import React, { useEffect, useRef } from "react";
-import * as faceapi from "face-api.js";
-import axios from "axios";
+import React, { useRef, useState, useEffect } from 'react';
+import Webcam from 'react-webcam';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import '@tensorflow/tfjs';
+import axios from 'axios';
 
-function Proctoring({ testid }) {
-  const videoRef = useRef();
-  const audioContextRef = useRef(null);
+const Proctoring = ({ testId, token }) => {
+  const webcamRef = useRef(null);
+  const [model, setModel] = useState(null);
 
   useEffect(() => {
-    const loadModels = async () => {
-      await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
-      await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
-      await faceapi.nets.faceExpressionNet.loadFromUri("/models");
-      startVideo();
-      startAudio();
-    };
+    console.log('Proctoring - Received token:', token);
+    cocoSsd.load().then(setModel);
+  }, [token]);
 
-    const startVideo = () => {
-      navigator.mediaDevices
-        .getUserMedia({ video: {} })
-        .then((stream) => {
-          videoRef.current.srcObject = stream;
-        })
-        .catch((err) => console.error("Camera access denied:", err));
-    };
-
-    const startAudio = () => {
-      navigator.mediaDevices
-        .getUserMedia({ audio: true })
-        .then((stream) => {
-          audioContextRef.current = new (window.AudioContext ||
-            window.webkitAudioContext)();
-          const source =
-            audioContextRef.current.createMediaStreamSource(stream);
-          const analyser = audioContextRef.current.createAnalyser();
-          source.connect(analyser);
-        })
-        .catch((err) => console.error("Audio access denied:", err));
-    };
-
-    const disableInputs = () => {
-      document.addEventListener("copy", (e) => e.preventDefault());
-      document.addEventListener("cut", (e) => e.preventDefault());
-      document.addEventListener("paste", (e) => e.preventDefault());
-      document.addEventListener("contextmenu", (e) => e.preventDefault());
-    };
-
-    const logWindowEvents = () => {
-      window.addEventListener("blur", () => {
-        axios.post(
-          "/api/proctor/window-event",
-          { testid, event: "tab_switch" },
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
+  const sendViolation = async (violationType, count) => {
+    if (!token) {
+      console.error('Proctoring - No token provided for violation request');
+      return;
+    }
+    try {
+      console.log('Proctoring - Sending violation:', {
+        testId,
+        violationType,
+        count,
+        token,
       });
-    };
-
-    loadModels();
-    disableInputs();
-    logWindowEvents();
-
-    const interval = setInterval(async () => {
-      if (videoRef.current && audioContextRef.current) {
-        const detections = await faceapi
-          .detectAllFaces(
-            videoRef.current,
-            new faceapi.TinyFaceDetectorOptions()
-          )
-          .withFaceLandmarks()
-          .withFaceExpressions();
-        const canvas = faceapi.createCanvasFromMedia(videoRef.current);
-        faceapi.matchDimensions(canvas, videoRef.current);
-
-        // Gaze estimation (simplified)
-        const landmarks = detections[0]?.landmarks;
-        const eyeMovement = landmarks
-          ? landmarks.positions.some((p) => p.x < 100 || p.x > 300)
-          : false;
-
-        // Audio frequency
-        const analyser = audioContextRef.current.createAnalyser();
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteFrequencyData(dataArray);
-        const voiceDb = Math.max(...dataArray);
-
-        const proctorData = {
-          imgData: canvas.toDataURL(),
-          voice_db: voiceDb,
-          mob_status: detections.length > 1,
-          person_status: detections.length === 0,
-          user_move1: false,
-          user_move2: false,
-          eye_movements: eyeMovement,
-        };
-        await axios.post(
-          "/api/proctor/video-feed",
-          {
-            data: {
-              imgData: proctorData.imgData,
-              testid,
-              voice_db: proctorData.voice_db,
-            },
+      const response = await axios.post(
+        'http://localhost:5000/api/proctor/video-feed',
+        {
+          data: {
+            testid: testId,
+            event: 'video_feed',
+            details: { violation: violationType, count },
           },
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
-        );
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      console.log('Proctoring - Violation sent successfully:', response.data);
+    } catch (error) {
+      console.error('Proctoring - Error sending violation:', {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+      });
+    }
+  };
+
+  const detect = async () => {
+    if (
+      model &&
+      webcamRef.current &&
+      webcamRef.current.video &&
+      webcamRef.current.video.readyState === 4
+    ) {
+      const predictions = await model.detect(webcamRef.current.video);
+
+      const persons = predictions.filter(p => p.class === 'person');
+      const cellphones = predictions.filter(p => p.class === 'cell phone');
+
+      const personCount = persons.length;
+      const cellphoneCount = cellphones.length;
+
+      if (personCount === 0) {
+        await sendViolation('no_person_detected', personCount);
+      } else if (personCount >= 2) {
+        await sendViolation('multiple_persons_detected', personCount);
       }
-    }, 5000);
 
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("copy", (e) => e.preventDefault());
-      document.removeEventListener("cut", (e) => e.preventDefault());
-      document.removeEventListener("paste", (e) => e.preventDefault());
-      document.removeEventListener("contextmenu", (e) => e.preventDefault());
-    };
-  }, [testid]);
+      if (cellphoneCount >= 1) {
+        await sendViolation('cell_phone_detected', cellphoneCount);
+      }
+    }
+  };
 
-  return <video ref={videoRef} autoPlay muted style={{ display: "none" }} />;
-}
+  useEffect(() => {
+    const interval = setInterval(detect, 2000);
+    return () => clearInterval(interval);
+  }, [model]);
+
+  return (
+    <div>
+      <Webcam
+        ref={webcamRef}
+        audio={false}
+        videoConstraints={{ facingMode: 'user' }}
+        screenshotFormat="image/jpeg"
+        style={{ width: 640, height: 480 }}
+      />
+    </div>
+  );
+};
 
 export default Proctoring;

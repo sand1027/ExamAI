@@ -7,12 +7,8 @@ const WindowEstimationLogSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  event: {
-    type: String,
-    enum: ["focus", "blur", "tab_switch"],
-    required: true,
-  },
-  details: { type: Object }, // e.g., { url: string, timestamp: Date }
+  event: { type: String, required: true },
+  details: { type: Object },
   timestamp: { type: Date, default: Date.now },
 });
 

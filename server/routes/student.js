@@ -15,25 +15,84 @@ const axios = require("axios");
 // Start Test
 router.post("/give-test", auth(["student"]), async (req, res) => {
   try {
+    console.log("Processing give-test request...");
     const { test_id, password, img_hidden_form } = req.body;
-    const test = await Test.findOne({ test_id });
-    if (!test) return res.status(400).json({ message: "Invalid test ID" });
-    if (test.password !== password)
-      return res.status(400).json({ message: "Invalid password" });
 
-    const user = await User.findById(req.user.id);
-    const isFaceMatch = await verifyFace(img_hidden_form, user.user_image);
-    if (!isFaceMatch)
-      return res.status(400).json({ message: "Face verification failed" });
-
-    if (test.start_date > new Date() || test.end_date < new Date()) {
-      return res.status(400).json({ message: "Test is not active" });
+    // Validate request data
+    if (!test_id || !password) {
+      return res
+        .status(400)
+        .json({ message: "Test ID and password are required" });
     }
 
+    if (!img_hidden_form) {
+      return res
+        .status(400)
+        .json({ message: "Image data is required for face verification" });
+    }
+
+    // Find test
+    console.log(`Finding test with ID: ${test_id}`);
+    const test = await Test.findOne({ test_id });
+    if (!test) {
+      return res.status(400).json({ message: "Invalid test ID" });
+    }
+
+    // Verify password
+    if (test.password !== password) {
+      return res.status(400).json({ message: "Invalid password" });
+    }
+
+    // Check test timing
+    const now = new Date();
+    if (test.start_date > now || test.end_date < now) {
+      return res.status(400).json({
+        message: "Test is not active",
+        startDate: test.start_date,
+        endDate: test.end_date,
+        currentTime: now,
+      });
+    }
+
+    // Get user
+    console.log(`Finding user with ID: ${req.user.id}`);
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.user_image) {
+      return res
+        .status(400)
+        .json({ message: "No reference image found for user" });
+    }
+
+    // Verify face
+    console.log("Starting face verification...");
+    try {
+      const isFaceMatch = await verifyFace(img_hidden_form, user.user_image);
+      console.log(
+        `Face verification result: ${isFaceMatch ? "Match" : "No match"}`
+      );
+
+      if (!isFaceMatch) {
+        return res.status(400).json({ message: "Face verification failed" });
+      }
+    } catch (faceError) {
+      console.error("Face verification error:", faceError);
+      return res.status(400).json({
+        message: "Face verification error",
+        error: faceError.message,
+      });
+    }
+
+    // Create or find test info
+    console.log("Updating student test info...");
     let testInfo = await StudentTestInfo.findOne({
       test_id,
       student_id: req.user.id,
     });
+
     if (!testInfo) {
       testInfo = new StudentTestInfo({
         test_id,
@@ -42,31 +101,52 @@ router.post("/give-test", auth(["student"]), async (req, res) => {
         status: "started",
       });
       await testInfo.save();
+      console.log("Created new test session");
+    } else {
+      console.log("Found existing test session");
     }
 
-    res.json({ test_id });
+    res.json({ test_id, message: "Test access granted" });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error("Give-test route error:", err);
+    res.status(500).json({
+      message: "Server error processing test request",
+      error: err.message,
+    });
   }
 });
 
 // Objective Test
 router.get("/test/:test_id", auth(["student"]), async (req, res) => {
   try {
+    console.log(`Fetching test with test_id: ${req.params.test_id}`);
+
     const test = await Test.findOne({ test_id: req.params.test_id });
-    if (!test) return res.status(400).json({ message: "Test not found" });
+    if (!test) {
+      console.error(`Test with test_id: ${req.params.test_id} not found`);
+      return res.status(400).json({ message: "Test not found" });
+    }
+
+    console.log(`Test found: ${JSON.stringify(test)}`);
 
     const questions = await Question.find({ test_id: req.params.test_id });
+    console.log(
+      `Fetched ${questions.length} questions for test_id: ${req.params.test_id}`
+    );
+
     const testInfo = await StudentTestInfo.findOne({
       test_id: req.params.test_id,
       student_id: req.user.id,
     });
+    console.log(`StudentTestInfo found: ${JSON.stringify(testInfo)}`);
+
     res.json({
       questions,
       duration: test.duration * 60,
       bookmarked: testInfo?.bookmarked_questions || [],
     });
   } catch (err) {
+    console.error("Error processing /test/:test_id request:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -74,47 +154,70 @@ router.get("/test/:test_id", auth(["student"]), async (req, res) => {
 router.post("/test", auth(["student"]), async (req, res) => {
   try {
     const { flag, no, qid, ans, testid, bookmark } = req.body;
-    if (flag === "get") {
-      const question = await Question.findOne({ test_id: testid, qid: no });
-      if (!question)
-        return res.status(400).json({ message: "Question not found" });
-      res.json(question);
-    } else if (flag === "mark") {
+    console.log("POST /test received:", {
+      flag,
+      qid,
+      ans,
+      testid,
+      userId: req.user.id,
+    });
+
+    if (!flag) {
+      console.error("Missing flag in request body");
+      return res.status(400).json({ message: "Flag is required" });
+    }
+
+    if (flag === "mark") {
+      console.log(`Querying question with test_id: ${testid}, qid: ${qid}`);
       const question = await Question.findOne({ test_id: testid, qid });
+
+      if (!question) {
+        console.error(`Question not found for test_id: ${testid}, qid: ${qid}`);
+        return res.status(404).json({ message: "Question not found" });
+      }
+
+      console.log("Question found:", question);
       let marks = 0;
-      if (ans === question.answer) {
+      // Compare answers case-insensitively
+      if (
+        ans &&
+        question.answer &&
+        ans.toLowerCase() === question.answer.toLowerCase()
+      ) {
         marks = 1;
-      } else if (question.test.negative_marking) {
+      } else if (question.test?.negative_marking) {
         marks = -0.25;
       }
+      console.log(
+        `Calculated marks: ${marks}, answer: ${ans}, correct: ${question.answer}`
+      );
+
       await StudentAnswer.updateOne(
         { test_id: testid, student_id: req.user.id, qid },
         { $set: { answer: ans, marks } },
         { upsert: true }
       );
+      console.log("Answer saved for student:", req.user.id);
+
       res.json({ message: "Answer saved" });
-    } else if (flag === "bookmark") {
-      const testInfo = await StudentTestInfo.findOne({
-        test_id: testid,
-        student_id: req.user.id,
-      });
-      if (bookmark) {
-        if (!testInfo.bookmarked_questions.includes(qid)) {
-          testInfo.bookmarked_questions.push(qid);
-        }
-      } else {
-        testInfo.bookmarked_questions = testInfo.bookmarked_questions.filter(
-          (id) => id !== qid
-        );
-      }
-      await testInfo.save();
-      res.json({ message: "Bookmark updated" });
     } else if (flag === "submit") {
+      if (!testid) {
+        console.error("Missing testid in submit request");
+        return res.status(400).json({ message: "Test ID is required" });
+      }
+
+      console.log(
+        `Fetching answers for test_id: ${testid}, student_id: ${req.user.id}`
+      );
       const answers = await StudentAnswer.find({
         test_id: testid,
         student_id: req.user.id,
       });
+      console.log(`Found ${answers.length} answers`);
+
       const total_marks = answers.reduce((sum, a) => sum + a.marks, 0);
+      console.log(`Calculated total_marks: ${total_marks}`);
+
       await Result.updateOne(
         { test_id: testid, student_id: req.user.id },
         { $set: { total_marks, date: new Date() } },
@@ -124,9 +227,15 @@ router.post("/test", auth(["student"]), async (req, res) => {
         { test_id: testid, student_id: req.user.id },
         { $set: { status: "submitted", end_time: new Date() } }
       );
+      console.log("Test submitted successfully");
+
       res.json({ message: "Test submitted" });
+    } else {
+      console.error(`Unsupported flag: ${flag}`);
+      res.status(400).json({ message: `Invalid flag: ${flag}` });
     }
   } catch (err) {
+    console.error("Error in /test route:", err);
     res.status(500).json({ message: err.message });
   }
 });

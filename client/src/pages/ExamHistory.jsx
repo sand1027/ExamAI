@@ -1,37 +1,37 @@
-import React, { useState, useEffect, useContext } from "react";
-import { Container, Table, Alert } from "react-bootstrap";
-import axios from "axios";
-import { AuthContext } from "../context/AuthContext";
+import React, { useState, useEffect, useContext } from 'react';
+import { Container, Table, Alert } from 'react-bootstrap';
+import axios from 'axios';
+import { AuthContext } from '../context/AuthContext';
 
 function ExamHistory() {
   const { user } = useContext(AuthContext);
   const [exams, setExams] = useState([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchExams = async () => {
       try {
-        const res = await axios.get("/api/tests/history", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        const res = await axios.get('http://localhost:5000/api/tests/history', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         });
 
         // Ensure exams is an array before setting state
         if (Array.isArray(res.data.exams)) {
           setExams(res.data.exams);
         } else {
-          setError("Invalid exam data format");
+          setError('Invalid exam data format');
         }
       } catch (err) {
-        setError(err.response?.data?.message || "Failed to load exam history");
+        setError(err.response?.data?.message || 'Failed to load exam history');
       }
     };
 
-    if (user && user.user_type === "professor") {
+    if (user && user.user_type === 'professor') {
       fetchExams();
     }
   }, [user]);
 
-  if (!user || user.user_type !== "professor") {
+  if (!user || user.user_type !== 'professor') {
     return (
       <Container>
         <h2>Unauthorized Access</h2>
@@ -57,7 +57,7 @@ function ExamHistory() {
         <tbody>
           {/* Ensure exams is an array before rendering */}
           {Array.isArray(exams) && exams.length > 0 ? (
-            exams.map((exam) => (
+            exams.map(exam => (
               <tr key={exam.test_id}>
                 <td>{exam.test_id}</td>
                 <td>{exam.subject}</td>
