@@ -1,8 +1,8 @@
 // src/context/AuthProvider.jsx
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 // import * as faceapi from "face-api.js"; // 👈 Commented out face-api
-import { AuthContext } from "./AuthContext";
+import { AuthContext } from './AuthContext';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -10,20 +10,20 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem('token');
     if (token) {
       axios
-        .get("http://localhost:5000/api/auth/me", {
+        .get('http://localhost:5000/api/auth/me', {
           headers: { Authorization: `Bearer ${token}` },
         })
-        .then((res) => {
+        .then(res => {
           setUser(res.data.user);
           setLoading(false);
         })
         .catch(() => {
-          localStorage.removeItem("token");
+          localStorage.removeItem('token');
           setLoading(false);
-          setError("Failed to authenticate. Please log in again.");
+          setError('Failed to authenticate. Please log in again.');
         });
     } else {
       setLoading(false);
@@ -51,10 +51,10 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password, user_type, videoRef = null) => {
     try {
       // Clear previous token if any
-      localStorage.removeItem("token");
+      localStorage.removeItem('token');
 
       const res = await axios.post(
-        "http://localhost:5000/api/auth/login",
+        'http://localhost:5000/api/auth/login',
         {
           email,
           password,
@@ -63,23 +63,23 @@ export const AuthProvider = ({ children }) => {
         },
         {
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
         }
       );
 
-      localStorage.setItem("token", res.data.token);
+      localStorage.setItem('token', res.data.token);
       setUser(res.data.user);
       setError(null);
       return res.data;
     } catch (err) {
       console.error(
-        "Login error:",
+        'Login error:',
         err.response ? err.response.data : err.message
       );
       setError(
         err.response?.data?.message ||
-          "Login failed. Please check your credentials and try again."
+          'Login failed. Please check your credentials and try again.'
       );
       throw err;
     }
@@ -88,17 +88,17 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       await axios.post(
-        "http://localhost:5000/api/auth/logout",
+        'http://localhost:5000/api/auth/logout',
         {},
         {
-          headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }
       );
-      localStorage.removeItem("token");
+      localStorage.removeItem('token');
       setUser(null);
       setError(null);
     } catch (err) {
-      setError("Logout failed. Please try again.");
+      setError('Logout failed. Please try again.');
     }
   };
 
