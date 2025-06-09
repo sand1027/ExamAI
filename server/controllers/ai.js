@@ -3,7 +3,6 @@ const axios = require("axios");
 exports.generateQuestions = async (req, res) => {
   try {
     const { subject, topic, testType, numQuestions } = req.body;
-    const professorId = req.user.id;
 
     // Validate input
     if (!subject || !topic || !testType || !numQuestions) {

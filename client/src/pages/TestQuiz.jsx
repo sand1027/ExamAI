@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useContext } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Container,
-  Card,
-  Button,
-  Form,
-  Alert,
-  Table,
-  Modal,
-} from 'react-bootstrap';
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { MessageCircle } from 'lucide-react';
 import axios from 'axios';
 import Proctoring from '../components/Proctoring';
 import { AuthContext } from '../context/AuthContext';
@@ -26,6 +28,7 @@ function TestQuiz() {
   const [showStats, setShowStats] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [calcValue, setCalcValue] = useState('');
+  const [violations, setViolations] = useState([]);
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -123,160 +126,228 @@ function TestQuiz() {
     }
   };
 
+  const formatTime = seconds => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
   if (!user || user.user_type !== 'student') {
     return (
-      <Container>
-        <h2>Unauthorized Access</h2>
-      </Container>
+      <div className="container mx-auto px-4 py-8">
+        <h2 className="text-2xl font-bold text-red-600">Unauthorized Access</h2>
+      </div>
     );
   }
 
   return (
-    <Container>
-      <Proctoring testId={testid} token={localStorage.getItem('token')} />
-      <h2>Objective Test</h2>
-      {error && <Alert variant="danger">{error}</Alert>}
-      {questions.length > 0 && (
-        <Card>
-          <Card.Body>
-            <Card.Title>{questions[currentQid - 1].question}</Card.Title>
-            <Form>
-              {['a', 'b', 'c', 'd'].map(option => (
-                <Form.Check
-                  key={option}
-                  type="radio"
-                  label={questions[currentQid - 1].options[option]}
-                  name="answer"
-                  value={option}
-                  checked={
-                    markedAnswers[questions[currentQid - 1].qid] === option
-                  }
-                  onChange={() => handleAnswer(option)}
-                />
-              ))}
-            </Form>
-            <Button
-              onClick={toggleBookmark}
-              variant={
-                bookmarks.has(questions[currentQid - 1].qid)
-                  ? 'warning'
-                  : 'outline-warning'
-              }
-              className="mt-3"
-            >
-              {bookmarks.has(questions[currentQid - 1].qid)
-                ? 'Unbookmark'
-                : 'Bookmark'}
-            </Button>
-            <Button
-              onClick={() => setCurrentQid(prev => Math.max(1, prev - 1))}
-              className="mt-3 ml-2"
-            >
-              Previous
-            </Button>
-            <Button
-              onClick={() =>
-                setCurrentQid(prev => Math.min(questions.length, prev + 1))
-              }
-              className="mt-3 ml-2"
-            >
-              Next
-            </Button>
-            <Button
-              onClick={() => setShowCalculator(!showCalculator)}
-              className="mt-3 ml-2"
-            >
-              Calculator
-            </Button>
-            <Button
-              onClick={submitTest}
-              variant="success"
-              className="mt-3 ml-2"
-            >
-              Submit Test
-            </Button>
-          </Card.Body>
-        </Card>
-      )}
-      {showCalculator && (
-        <Card className="mt-3">
-          <Card.Body>
-            <Form.Control value={calcValue} readOnly />
-            <div className="mt-2">
-              {[
-                '1',
-                '2',
-                '3',
-                '+',
-                '4',
-                '5',
-                '6',
-                '-',
-                '7',
-                '8',
-                '9',
-                '*',
-                '0',
-                '.',
-                '=',
-                '/',
-              ].map(val => (
-                <Button
-                  key={val}
-                  onClick={() => handleCalculator(val)}
-                  className="m-1"
-                >
-                  {val}
-                </Button>
-              ))}
-              <Button
-                onClick={() => handleCalculator('C')}
-                variant="danger"
-                className="m-1"
-              >
-                C
-              </Button>
-            </div>
-          </Card.Body>
-        </Card>
-      )}
-      <Table striped bordered hover className="mt-3">
-        <thead>
-          <tr>
+    <div className="container mx-auto px-4 py-8">
+      <div className="grid grid-cols-1 md:grid-cols-[200px_1fr_200px] gap-4 h-[calc(100vh-4rem)]">
+        {/* Left: Vertical Question List */}
+        <div className="bg-gray-100 p-4 rounded-lg overflow-y-auto">
+          <h3 className="text-lg font-semibold mb-4">Questions</h3>
+          <div className="flex flex-col space-y-2">
             {questions.map((q, i) => (
-              <th
+              <Button
                 key={q.qid}
                 onClick={() => setCurrentQid(i + 1)}
-                style={{
-                  cursor: 'pointer',
-                  background: bookmarks.has(q.qid) ? 'yellow' : '',
-                }}
+                className={`p-2 rounded-lg text-left ${
+                  currentQid === i + 1
+                    ? 'bg-blue-500 text-white hover:bg-blue-600'
+                    : bookmarks.has(q.qid)
+                      ? 'bg-yellow-200 hover:bg-yellow-300'
+                      : markedAnswers[q.qid]
+                        ? 'bg-green-200 hover:bg-green-300'
+                        : 'bg-white hover:bg-gray-100'
+                } transition-colors`}
               >
-                Q{i + 1}
-              </th>
+                Question {i + 1}
+              </Button>
             ))}
-          </tr>
-        </thead>
-      </Table>
-      <Modal show={showStats} onHide={() => setShowStats(false)}>
-        <Modal.Header closeButton>
-          <Modal.Title>Submission Statistics</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <p>Total Questions: {questions.length}</p>
-          <p>Answered: {Object.keys(markedAnswers).length}</p>
-          <p>Bookmarked: {bookmarks.size}</p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowStats(false)}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={confirmSubmit}>
-            Confirm Submit
-          </Button>
-        </Modal.Footer>
-      </Modal>
-    </Container>
+          </div>
+        </div>
+
+        {/* Center: Question Display */}
+        <div className="bg-white p-6 rounded-lg shadow-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold">Objective Test</h2>
+            <div className="text-lg font-semibold text-red-600">
+              Time Left: {formatTime(timeLeft)}
+            </div>
+          </div>
+          {error && (
+            <Alert className="bg-red-100 border-red-500 text-red-700 p-4 rounded-lg">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {questions.length > 0 && (
+            <Card className="border-none p-4">
+              <h3 className="text-xl font-semibold mb-4">
+                {questions[currentQid - 1].question}
+              </h3>
+              <div className="space-y-2">
+                {['a', 'b', 'c', 'd'].map(option => (
+                  <label
+                    key={option}
+                    className="flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      name="answer"
+                      value={option}
+                      checked={
+                        markedAnswers[questions[currentQid - 1].qid] === option
+                      }
+                      onChange={() => handleAnswer(option)}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    <span>{questions[currentQid - 1].options[option]}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex space-x-2 mt-4 flex-wrap gap-2">
+                <Button
+                  onClick={() => setCurrentQid(prev => Math.max(1, prev - 1))}
+                  className="bg-gray-500 hover:bg-gray-600 text-white"
+                >
+                  Previous
+                </Button>
+                <Button
+                  onClick={() =>
+                    setCurrentQid(prev => Math.min(questions.length, prev + 1))
+                  }
+                  className="bg-gray-500 hover:bg-gray-600 text-white"
+                >
+                  Next
+                </Button>
+                <Button
+                  onClick={toggleBookmark}
+                  className={`${
+                    bookmarks.has(questions[currentQid - 1].qid)
+                      ? 'bg-yellow-500 hover:bg-yellow-600'
+                      : 'bg-gray-200 hover:bg-gray-300 text-black'
+                  }`}
+                >
+                  {bookmarks.has(questions[currentQid - 1].qid)
+                    ? 'Unbookmark'
+                    : 'Bookmark'}
+                </Button>
+                <Button
+                  onClick={() => setShowCalculator(!showCalculator)}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  {showCalculator ? 'Hide Calculator' : 'Show Calculator'}
+                </Button>
+                <Button
+                  onClick={submitTest}
+                  className="bg-green-500 hover:bg-green-600 text-white"
+                >
+                  Submit Test
+                </Button>
+              </div>
+              {showCalculator && (
+                <Card className="mt-4 p-4 border rounded-lg">
+                  <Input
+                    value={calcValue}
+                    readOnly
+                    className="w-full p-2 border rounded-lg mb-2"
+                  />
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      '1',
+                      '2',
+                      '3',
+                      '+',
+                      '4',
+                      '5',
+                      '6',
+                      '-',
+                      '7',
+                      '8',
+                      '9',
+                      '*',
+                      '0',
+                      '.',
+                      '=',
+                      '/',
+                    ].map(val => (
+                      <Button
+                        key={val}
+                        onClick={() => handleCalculator(val)}
+                        className="bg-gray-200 hover:bg-gray-300 text-black"
+                      >
+                        {val}
+                      </Button>
+                    ))}
+                    <Button
+                      onClick={() => handleCalculator('C')}
+                      className="bg-red-500 hover:bg-red-600 text-white"
+                    >
+                      C
+                    </Button>
+                  </div>
+                </Card>
+              )}
+            </Card>
+          )}
+        </div>
+
+        {/* Right: Proctoring and Violations */}
+        <div className="bg-gray-100 p-4 rounded-lg flex flex-col space-y-4">
+          <Proctoring
+            testId={testid}
+            token={localStorage.getItem('token')}
+            setViolations={setViolations}
+            style={{ width: '150px', height: '112.5px' }}
+          />
+          <div className="flex-1 overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-2 flex items-center">
+              <MessageCircle className="w-5 h-5 mr-2" />
+              Violations
+            </h3>
+            {violations.length > 0 ? (
+              <ul className="space-y-2">
+                {violations.map((violation, index) => (
+                  <li key={index} className="text-sm text-red-600">
+                    {violation}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-600">No violations detected</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Submission Dialog */}
+      <Dialog open={showStats} onOpenChange={setShowStats}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle className="text-xl font-bold">
+            Submission Statistics
+          </DialogTitle>
+          <div className="space-y-2">
+            <p>Total Questions: {questions.length}</p>
+            <p>Answered: {Object.keys(markedAnswers).length}</p>
+            <p>Bookmarked: {bookmarks.size}</p>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setShowStats(false)}
+              className="bg-gray-500 hover:bg-gray-600 text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmSubmit}
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+            >
+              Confirm Submit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 

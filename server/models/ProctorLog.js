@@ -1,7 +1,10 @@
 const mongoose = require("mongoose");
 
-const ProctoringLogSchema = new mongoose.Schema({
-  test_id: { type: String, required: true },
+const proctoringLogSchema = new mongoose.Schema({
+  test_id: {
+    type: String,
+    required: true,
+  },
   student_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -9,11 +12,20 @@ const ProctoringLogSchema = new mongoose.Schema({
   },
   event: {
     type: String,
-    enum: ["video_feed", "audio_feed", "other"],
     required: true,
   },
-  details: { type: Object },
-  timestamp: { type: Date, default: Date.now },
+  details: {
+    type: Object,
+    default: {},
+  },
+  snapshot_url: {
+    type: String,
+    default: null,
+  },
+  timestamp: {
+    type: Date,
+    default: Date.now,
+  },
 });
 
-module.exports = mongoose.model("ProctoringLog", ProctoringLogSchema);
+module.exports = mongoose.model("ProctoringLog", proctoringLogSchema);

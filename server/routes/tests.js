@@ -14,7 +14,7 @@ const stripe = require("../config/stripe");
 const csv = require("csv-parser");
 const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
-
+const sendEmail = require("../utils/email");
 const storage = multer.memoryStorage();
 const upload = multer({ storage }).single("doc");
 
@@ -227,10 +227,16 @@ router.post(
 // Create Practical Test
 router.post("/create-test-practical", auth(["professor"]), async (req, res) => {
   try {
+    // Verify user and credits
     const user = await User.findById(req.user.id);
-    if (user.exam_credits < 1)
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (user.exam_credits < 1) {
       return res.status(400).json({ message: "Insufficient credits" });
+    }
 
+    // Extract fields from req.body (JSON)
     const {
       subject,
       topic,
@@ -244,6 +250,37 @@ router.post("/create-test-practical", auth(["professor"]), async (req, res) => {
       proctor_type,
       questions,
     } = req.body;
+
+    // Validate required fields
+    if (
+      !subject ||
+      !topic ||
+      !start_date ||
+      !start_time ||
+      !end_date ||
+      !end_time ||
+      !duration ||
+      !compiler ||
+      !proctor_type ||
+      !questions ||
+      !Array.isArray(questions) ||
+      questions.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Missing or invalid required fields" });
+    }
+
+    // Validate questions
+    for (const q of questions) {
+      if (!q.question || !q.max_marks) {
+        return res.status(400).json({
+          message: "Each question must have a question and max_marks",
+        });
+      }
+    }
+
+    // Create test
     const test_id = uuidv4();
     const test = new Test({
       test_id,
@@ -253,11 +290,13 @@ router.post("/create-test-practical", auth(["professor"]), async (req, res) => {
       test_type: "practical",
       start_date: new Date(`${start_date}T${start_time}`),
       end_date: new Date(`${end_date}T${end_time}`),
-      duration,
+      duration: parseInt(duration),
       compiler,
       password,
       proctor_type,
     });
+
+    // Create practical test
     const practicalTest = new PracticalTest({
       test_id,
       professor_id: req.user.id,
@@ -266,27 +305,33 @@ router.post("/create-test-practical", auth(["professor"]), async (req, res) => {
       compiler,
       question_count: questions.length,
     });
+
+    // Link test and practical test
     test.practical_test_id = practicalTest._id;
     await test.save();
     await practicalTest.save();
 
+    // Create practical questions
     const practicalQuestions = questions.map((q, index) => ({
       practical_test_id: practicalTest._id,
       qid: index + 1,
       question: q.question,
-      test_cases: q.test_cases,
+      test_cases: q.test_cases || [],
       max_marks: q.max_marks,
     }));
     await PracticalQA.insertMany(practicalQuestions);
 
+    // Update user credits
     user.exam_credits -= 1;
     await user.save();
+
+    // Respond with test_id
     res.json({ test_id });
   } catch (err) {
+    console.error("Server error:", err);
     res.status(500).json({ message: err.message });
   }
 });
-
 // Get Test History
 router.get("/history", auth(["professor"]), async (req, res) => {
   try {
@@ -386,6 +431,35 @@ router.put(
     }
   }
 );
+
+// Add a new question to a test
+router.post("/questions/:testId", async (req, res) => {
+  try {
+    const { question, options, answer } = req.body;
+    const { testId } = req.params;
+
+    // Get the latest question ID for the selected test
+    const lastQuestion = await Question.find({ test_id: testId })
+      .sort({ qid: -1 })
+      .limit(1);
+    const newQid = lastQuestion.length > 0 ? lastQuestion[0].qid + 1 : 1;
+
+    const newQuestion = new Question({
+      test_id: testId,
+      qid: newQid,
+      question,
+      options,
+      answer,
+    });
+
+    await newQuestion.save();
+    res.status(201).json({ message: "Question added successfully" });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ message: "Failed to add question", error: err.message });
+  }
+});
 
 // Delete Question
 router.delete(

@@ -309,28 +309,9 @@ router.post(
 );
 
 // Practical Test
-router.get("/test-practical/:test_id", auth(["student"]), async (req, res) => {
-  try {
-    const test = await Test.findOne({ test_id: req.params.test_id });
-    if (!test) return res.status(400).json({ message: "Test not found" });
+// Enhanced backend routes for the practical test system
 
-    const questions = await PracticalQA.find({
-      practical_test_id: test.practical_test_id,
-    });
-    const testInfo = await StudentTestInfo.findOne({
-      test_id: req.params.test_id,
-      student_id: req.user.id,
-    });
-    res.json({
-      questions,
-      duration: test.duration * 60,
-      bookmarked: testInfo?.bookmarked_questions || [],
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
+// Test submission route (update to handle test cases)
 router.post("/test-practical/:test_id", auth(["student"]), async (req, res) => {
   try {
     const {
@@ -340,42 +321,103 @@ router.post("/test-practical/:test_id", auth(["student"]), async (req, res) => {
       inputByStudent,
       executedByStudent,
       bookmark,
+      language,
     } = req.body;
+
+    if (test_id !== req.params.test_id) {
+      return res.status(400).json({ message: "Test ID mismatch" });
+    }
+
     const test = await Test.findOne({ test_id });
     if (!test) return res.status(400).json({ message: "Test not found" });
 
-    if (bookmark !== undefined) {
-      const testInfo = await StudentTestInfo.findOne({
-        test_id,
-        student_id: req.user.id,
-      });
-      if (bookmark) {
-        if (!testInfo.bookmarked_questions.includes(qid)) {
-          testInfo.bookmarked_questions.push(qid);
-        }
-      } else {
-        testInfo.bookmarked_questions = testInfo.bookmarked_questions.filter(
-          (id) => id !== qid
-        );
-      }
-      await testInfo.save();
-      return res.json({ message: "Bookmark updated" });
-    }
-
-    // Submit to Judge0 for evaluation
     const question = await PracticalQA.findOne({
       practical_test_id: test.practical_test_id,
       qid,
     });
+    if (!question)
+      return res.status(400).json({ message: "Question not found" });
+
+    // Handle bookmark
+    if (bookmark !== undefined) {
+      await PracticalQA.updateOne(
+        {
+          practical_test_id: test.practical_test_id,
+          qid,
+          "studentAnswers.student_id": req.user.id,
+        },
+        {
+          $set: {
+            "studentAnswers.$.bookmarked": bookmark,
+            "studentAnswers.$.last_saved": new Date(),
+          },
+        },
+        {
+          upsert: false,
+        }
+      );
+
+      // If no student answer exists, create one
+      const studentAnswerExists = question.studentAnswers.some(
+        (answer) => answer.student_id.toString() === req.user.id
+      );
+      if (!studentAnswerExists) {
+        await PracticalQA.updateOne(
+          {
+            practical_test_id: test.practical_test_id,
+            qid,
+          },
+          {
+            $push: {
+              studentAnswers: {
+                student_id: req.user.id,
+                bookmarked: bookmark,
+                last_saved: new Date(),
+              },
+            },
+          }
+        );
+      }
+
+      return res.json({
+        message: bookmark ? "Bookmark added" : "Bookmark removed",
+      });
+    }
+
+    // Validate required fields
+    if (!codeByStudent || !language) {
+      return res
+        .status(400)
+        .json({ message: "Code and language are required" });
+    }
+
+    // Map language to Judge0 language ID
+    const languageId =
+      language === "python"
+        ? 71
+        : language === "javascript"
+          ? 63
+          : test.compiler === "node"
+            ? 63
+            : test.compiler === "116"
+              ? 71
+              : parseInt(test.compiler);
+
+    let output = "";
+    let error = null;
+    let status = "Accepted";
     let marks = 0;
-    for (const testCase of question.test_cases) {
-      const response = await axios.post(
+    const testResults = [];
+
+    // Custom input execution
+    try {
+      const customResponse = await axios.post(
         "https://judge0-ce.p.rapidapi.com/submissions",
         {
           source_code: codeByStudent,
-          language_id: test.compiler === "python3" ? 71 : 62, // Python or Java
-          stdin: testCase.input,
-          expected_output: testCase.expected_output,
+          language_id: languageId,
+          stdin: inputByStudent || "",
+          base64_encoded: false,
         },
         {
           headers: {
@@ -386,39 +428,612 @@ router.post("/test-practical/:test_id", auth(["student"]), async (req, res) => {
         }
       );
 
-      const submissionId = response.data.token;
-      const result = await axios.get(
-        `https://judge0-ce.p.rapidapi.com/submissions/${submissionId}`,
-        {
-          headers: {
-            "x-rapidapi-key": process.env.JUDGE0_API_KEY,
-            "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+      const customSubmissionId = customResponse.data.token;
+      let customResult;
+      for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        customResult = await axios.get(
+          `https://judge0-ce.p.rapidapi.com/submissions/${customSubmissionId}?base64_encoded=false`,
+          {
+            headers: {
+              "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+              "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+            },
+          }
+        );
+        console.log("Judge0 custom result:", customResult.data);
+        if ([3, 4, 5, 6].includes(customResult.data.status.id)) break;
+      }
+
+      const {
+        stdout,
+        stderr,
+        compile_output,
+        status: customStatus,
+      } = customResult.data;
+      output = stdout || stderr || compile_output || "No output produced";
+      error = stderr
+        ? `${stderr} (${customStatus.description})`
+        : compile_output
+          ? `${compile_output} (${customStatus.description})`
+          : customStatus.id !== 3
+            ? customStatus.description
+            : null;
+      status = customStatus.description;
+
+      // Test case execution
+      for (const testCase of question.test_cases) {
+        const response = await axios.post(
+          "https://judge0-ce.p.rapidapi.com/submissions",
+          {
+            source_code: codeByStudent,
+            language_id: languageId,
+            stdin: testCase.input,
+            expected_output: testCase.expected_output,
+            base64_encoded: false,
           },
+          {
+            headers: {
+              "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+              "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              "content-type": "application/json",
+            },
+          }
+        );
+
+        const submissionId = response.data.token;
+        let result;
+        for (let i = 0; i < 5; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          result = await axios.get(
+            `https://judge0-ce.p.rapidapi.com/submissions/${submissionId}?base64_encoded=false`,
+            {
+              headers: {
+                "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+                "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              },
+            }
+          );
+          console.log("Judge0 test case result:", result.data);
+          if ([3, 4, 5, 6].includes(result.data.status.id)) break;
+        }
+
+        const {
+          stdout: testStdout,
+          stderr: testStderr,
+          compile_output: testCompileOutput,
+          status: testStatus,
+        } = result.data;
+        const passed = testStatus.id === 3;
+        if (passed) marks += testCase.marks || 0;
+        testResults.push({
+          input: testCase.input,
+          expected_output: testCase.expected_output,
+          actual_output:
+            testStdout || testStderr || testCompileOutput || "No output",
+          passed,
+          error: testStderr
+            ? `${testStderr} (${testStatus.description})`
+            : testCompileOutput
+              ? `${testCompileOutput} (${testStatus.description})`
+              : testStatus.id !== 3
+                ? testStatus.description
+                : null,
+        });
+      }
+
+      // Save or update student answer in PracticalQA
+      await PracticalQA.updateOne(
+        {
+          practical_test_id: test.practical_test_id,
+          qid,
+          "studentAnswers.student_id": req.user.id,
+        },
+        {
+          $set: {
+            "studentAnswers.$.answer": codeByStudent,
+            "studentAnswers.$.input": inputByStudent || "",
+            "studentAnswers.$.output": output,
+            "studentAnswers.$.language": language,
+            "studentAnswers.$.marks": marks,
+            "studentAnswers.$.test_results": testResults,
+            "studentAnswers.$.executed": executedByStudent,
+            "studentAnswers.$.last_saved": new Date(),
+          },
+        },
+        {
+          upsert: false,
         }
       );
 
-      if (result.data.status.id === 3) {
-        // Accepted
-        marks += question.max_marks / question.test_cases.length;
+      // If no student answer exists, create one
+      const studentAnswerExists = question.studentAnswers.some(
+        (answer) => answer.student_id.toString() === req.user.id
+      );
+      if (!studentAnswerExists) {
+        await PracticalQA.updateOne(
+          {
+            practical_test_id: test.practical_test_id,
+            qid,
+          },
+          {
+            $push: {
+              studentAnswers: {
+                student_id: req.user.id,
+                answer: codeByStudent,
+                input: inputByStudent || "",
+                output,
+                language,
+                marks,
+                test_results: testResults,
+                executed: executedByStudent,
+                last_saved: new Date(),
+              },
+            },
+          }
+        );
       }
+
+      res.json({
+        message: "Test submitted",
+        marks,
+        output,
+        error,
+        status,
+        test_results: testResults,
+      });
+    } catch (err) {
+      console.error("Submission error:", err);
+      if (err.response && err.response.status === 403) {
+        return res.status(500).json({
+          message: "Judge0 API authentication failed",
+          error:
+            "Invalid or unsubscribed API key. Please check your RapidAPI subscription.",
+        });
+      }
+      res
+        .status(500)
+        .json({ message: "Error submitting code", error: err.message });
     }
-
-    await StudentAnswer.updateOne(
-      { test_id, student_id: req.user.id, qid },
-      { $set: { answer: codeByStudent, marks } },
-      { upsert: true }
-    );
-
-    await StudentTestInfo.updateOne(
-      { test_id, student_id: req.user.id },
-      { $set: { status: "submitted", end_time: new Date() } }
-    );
-
-    res.json({ message: "Test submitted", marks });
   } catch (err) {
+    console.error("Server error:", err);
     res.status(500).json({ message: err.message });
   }
 });
+
+// Execute code without submission (for the "Execute Code" button)
+router.post(
+  "/test-practical/:test_id/execute",
+  auth(["student"]),
+  async (req, res) => {
+    try {
+      const { test_id, qid, codeByStudent, inputByStudent, language } =
+        req.body;
+
+      if (test_id !== req.params.test_id) {
+        return res.status(400).json({ message: "Test ID mismatch" });
+      }
+
+      const test = await Test.findOne({ test_id });
+      if (!test) return res.status(400).json({ message: "Test not found" });
+
+      const question = await PracticalQA.findOne({
+        practical_test_id: test.practical_test_id,
+        qid,
+      });
+      if (!question)
+        return res.status(400).json({ message: "Question not found" });
+
+      if (!qid || !codeByStudent || !language) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Map language to Judge0 language ID
+      const languageId =
+        language === "python"
+          ? 71
+          : language === "javascript"
+            ? 63
+            : test.compiler === "node"
+              ? 63
+              : test.compiler === "116"
+                ? 71
+                : parseInt(test.compiler);
+
+      // Execute the code
+      let output = "";
+      let error = null;
+      let status = "Accepted";
+
+      try {
+        const response = await axios.post(
+          "https://judge0-ce.p.rapidapi.com/submissions",
+          {
+            source_code: codeByStudent,
+            language_id: languageId,
+            stdin: inputByStudent || "",
+            base64_encoded: false,
+          },
+          {
+            headers: {
+              "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+              "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              "content-type": "application/json",
+            },
+          }
+        );
+
+        const submissionId = response.data.token;
+
+        // Poll Judge0 until execution completes (up to 10 seconds)
+        let result;
+        for (let i = 0; i < 5; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          result = await axios.get(
+            `https://judge0-ce.p.rapidapi.com/submissions/${submissionId}?base64_encoded=false`,
+            {
+              headers: {
+                "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+                "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              },
+            }
+          );
+          console.log("Judge0 result:", result.data);
+          if ([3, 4, 5, 6].includes(result.data.status.id)) break;
+        }
+
+        const {
+          stdout,
+          stderr,
+          compile_output,
+          status: judgeStatus,
+        } = result.data;
+        output = stdout || stderr || compile_output || "No output produced";
+        error = stderr
+          ? `${stderr} (${judgeStatus.description})`
+          : compile_output
+            ? `${compile_output} (${judgeStatus.description})`
+            : judgeStatus.id !== 3
+              ? judgeStatus.description
+              : null;
+        status = judgeStatus.description;
+
+        // Save or update student answer in PracticalQA
+        await PracticalQA.updateOne(
+          {
+            practical_test_id: test.practical_test_id,
+            qid,
+            "studentAnswers.student_id": req.user.id,
+          },
+          {
+            $set: {
+              "studentAnswers.$.answer": codeByStudent,
+              "studentAnswers.$.input": inputByStudent || "",
+              "studentAnswers.$.output": output,
+              "studentAnswers.$.language": language,
+              "studentAnswers.$.executed": true,
+              "studentAnswers.$.last_saved": new Date(),
+            },
+          },
+          {
+            upsert: false,
+          }
+        );
+
+        // If no student answer exists, create one
+        const studentAnswerExists = question.studentAnswers.some(
+          (answer) => answer.student_id.toString() === req.user.id
+        );
+        if (!studentAnswerExists) {
+          await PracticalQA.updateOne(
+            {
+              practical_test_id: test.practical_test_id,
+              qid,
+            },
+            {
+              $push: {
+                studentAnswers: {
+                  student_id: req.user.id,
+                  answer: codeByStudent,
+                  input: inputByStudent || "",
+                  output,
+                  language,
+                  executed: true,
+                  last_saved: new Date(),
+                },
+              },
+            }
+          );
+        }
+
+        res.json({ message: "Code executed", output, error, status });
+      } catch (err) {
+        console.error("Code execution error:", err);
+        if (err.response && err.response.status === 403) {
+          return res.status(500).json({
+            message: "Judge0 API authentication failed",
+            error:
+              "Invalid or unsubscribed API key. Please check your RapidAPI subscription.",
+          });
+        }
+        res
+          .status(500)
+          .json({ message: "Error executing code", error: err.message });
+      }
+    } catch (err) {
+      console.error("Server error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
+// Run test cases without submission
+router.post(
+  "/test-practical/:test_id/test-cases",
+  auth(["student"]),
+  async (req, res) => {
+    try {
+      const { test_id, qid, codeByStudent, language } = req.body;
+      if (test_id !== req.params.test_id) {
+        return res.status(400).json({ message: "Test ID mismatch" });
+      }
+      const test = await Test.findOne({ test_id });
+      if (!test) return res.status(400).json({ message: "Test not found" });
+      const question = await PracticalQA.findOne({
+        practical_test_id: test.practical_test_id,
+        qid,
+      });
+      if (!question)
+        return res.status(400).json({ message: "Question not found" });
+
+      const languageId =
+        language === "python"
+          ? 71
+          : language === "javascript"
+            ? 63
+            : test.compiler === "node"
+              ? 63
+              : test.compiler === "116"
+                ? 71
+                : parseInt(test.compiler);
+      const results = [];
+
+      for (const testCase of question.test_cases) {
+        const response = await axios.post(
+          "https://judge0-ce.p.rapidapi.com/submissions",
+          {
+            source_code: codeByStudent,
+            language_id: languageId,
+            stdin: testCase.input,
+            expected_output: testCase.expected_output,
+            base64_encoded: false,
+          },
+          {
+            headers: {
+              "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+              "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              "content-type": "application/json",
+            },
+          }
+        );
+
+        const submissionId = response.data.token;
+        let result;
+        for (let i = 0; i < 5; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          result = await axios.get(
+            `https://judge0-ce.p.rapidapi.com/submissions/${submissionId}?base64_encoded=false`,
+            {
+              headers: {
+                "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+                "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+              },
+            }
+          );
+          console.log("Judge0 test case result:", result.data);
+          if ([3, 4, 5, 6].includes(result.data.status.id)) break;
+        }
+
+        const { stdout, stderr, compile_output, status } = result.data;
+        const passed = status.id === 3;
+        results.push({
+          input: testCase.input,
+          expected_output: testCase.expected_output,
+          actual_output: stdout || stderr || compile_output || "No output",
+          passed,
+          error: stderr
+            ? `${stderr} (${status.description})`
+            : compile_output
+              ? `${compile_output} (${status.description})`
+              : status.id !== 3
+                ? status.description
+                : null,
+        });
+      }
+
+      res.json({ message: "Test cases executed", results });
+    } catch (err) {
+      console.error("Test case error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
+// Save code without submitting
+router.post(
+  "/test-practical/:test_id/save",
+  auth(["student"]),
+  async (req, res) => {
+    try {
+      const { test_id, qid, codeByStudent, inputByStudent } = req.body;
+
+      if (test_id !== req.params.test_id) {
+        return res.status(400).json({ message: "Test ID mismatch" });
+      }
+
+      if (!qid || !codeByStudent) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      await StudentAnswer.updateOne(
+        { test_id, student_id: req.user.id, qid },
+        {
+          $set: {
+            answer: codeByStudent,
+            input: inputByStudent,
+            last_saved: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      res.json({ message: "Code saved successfully" });
+    } catch (err) {
+      console.error("Server error:", err);
+      res.status(500).json({ message: err.message });
+    }
+  }
+);
+
+// Get test data with saved answers
+router.get("/test-practical/:test_id", auth(["student"]), async (req, res) => {
+  try {
+    console.log(`Fetching test with ID: ${req.params.test_id}`);
+    const test = await Test.findOne({ test_id: req.params.test_id });
+    if (!test) {
+      return res.status(404).json({ message: "Test not found" });
+    }
+
+    const questions = await PracticalQA.find({
+      practical_test_id: test.practical_test_id,
+    });
+
+    if (!questions || questions.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "No questions found for this test" });
+    }
+
+    const testInfo = await StudentTestInfo.findOne({
+      test_id: req.params.test_id,
+      student_id: req.user.id,
+    });
+
+    // Get saved answers
+    const savedAnswers = await StudentAnswer.find({
+      test_id: req.params.test_id,
+      student_id: req.user.id,
+    });
+
+    res.json({
+      subject: test.subject,
+      topic: test.topic,
+      duration: test.duration,
+      compiler: test.compiler,
+      questions,
+      bookmarked: testInfo?.bookmarked_questions || [],
+      saved_answers: savedAnswers.map((answer) => ({
+        qid: answer.qid,
+        code: answer.answer,
+        input: answer.input,
+        output: answer.output,
+        marks: answer.marks,
+        submitted_at: answer.submitted_at,
+        test_results: answer.test_results || [],
+      })),
+    });
+  } catch (err) {
+    console.error("Error fetching test:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+//   try {
+//     const {
+//       test_id,
+//       qid,
+//       codeByStudent,
+//       inputByStudent,
+//       executedByStudent,
+//       bookmark,
+//     } = req.body;
+//     const test = await Test.findOne({ test_id });
+//     if (!test) return res.status(400).json({ message: "Test not found" });
+
+//     if (bookmark !== undefined) {
+//       const testInfo = await StudentTestInfo.findOne({
+//         test_id,
+//         student_id: req.user.id,
+//       });
+//       if (bookmark) {
+//         if (!testInfo.bookmarked_questions.includes(qid)) {
+//           testInfo.bookmarked_questions.push(qid);
+//         }
+//       } else {
+//         testInfo.bookmarked_questions = testInfo.bookmarked_questions.filter(
+//           (id) => id !== qid
+//         );
+//       }
+//       await testInfo.save();
+//       return res.json({ message: "Bookmark updated" });
+//     }
+
+//     // Submit to Judge0 for evaluation
+//     const question = await PracticalQA.findOne({
+//       practical_test_id: test.practical_test_id,
+//       qid,
+//     });
+//     let marks = 0;
+//     for (const testCase of question.test_cases) {
+//       const response = await axios.post(
+//         "https://judge0-ce.p.rapidapi.com/submissions",
+//         {
+//           source_code: codeByStudent,
+//           language_id: test.compiler === "python3" ? 71 : 62, // Python or Java
+//           stdin: testCase.input,
+//           expected_output: testCase.expected_output,
+//         },
+//         {
+//           headers: {
+//             "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+//             "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+//             "content-type": "application/json",
+//           },
+//         }
+//       );
+
+//       const submissionId = response.data.token;
+//       const result = await axios.get(
+//         `https://judge0-ce.p.rapidapi.com/submissions/${submissionId}`,
+//         {
+//           headers: {
+//             "x-rapidapi-key": process.env.JUDGE0_API_KEY,
+//             "x-rapidapi-host": "judge0-ce.p.rapidapi.com",
+//           },
+//         }
+//       );
+
+//       if (result.data.status.id === 3) {
+//         // Accepted
+//         marks += question.max_marks / question.test_cases.length;
+//       }
+//     }
+
+//     await StudentAnswer.updateOne(
+//       { test_id, student_id: req.user.id, qid },
+//       { $set: { answer: codeByStudent, marks } },
+//       { upsert: true }
+//     );
+
+//     await StudentTestInfo.updateOne(
+//       { test_id, student_id: req.user.id },
+//       { $set: { status: "submitted", end_time: new Date() } }
+//     );
+
+//     res.json({ message: "Test submitted", marks });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// });
 
 // Student History
 router.get("/history", auth(["student"]), async (req, res) => {
