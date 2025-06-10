@@ -3,6 +3,8 @@ const { PeerServer } = require("peer");
 const connectDB = require("./config/db");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const adminRoutes = require("./routes/adminRoutes");
+const pdfRoutes = require("./routes/pdfRoutes");
 
 dotenv.config();
 connectDB();
@@ -31,7 +33,7 @@ peerServer.on("disconnect", (client) => {
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: ["http://localhost:5173", "http://localhost:5174"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Authorization", "Content-Type"],
     credentials: true,
@@ -45,6 +47,7 @@ app.use("/api/student", require("./routes/student"));
 app.use("/api/proctor", require("./routes/proctor"));
 app.use("/api/support", require("./routes/support"));
 app.use("/api/ai", require("./routes/ai"));
+app.use("/api/admin/proctal", adminRoutes, pdfRoutes);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok" });

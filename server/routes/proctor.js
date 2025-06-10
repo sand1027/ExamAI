@@ -30,7 +30,7 @@ router.post(
         event,
         details: details ? JSON.parse(details) : null,
         hasFile: !!file,
-        fileDetails: file ? { size: file.size, mimetype: file.mimetype } : null,
+        user: req.user,
       });
 
       if (!testid || !event) {
@@ -41,7 +41,7 @@ router.post(
 
       const test = await Test.findOne({ test_id: testid });
       if (!test) {
-        return res.status(400).json({ message: "Test not found" });
+        return res.status(404).json({ message: "Test not found" });
       }
 
       let snapshotUrl = null;
@@ -70,23 +70,12 @@ router.post(
           } catch (uploadError) {
             console.error("[Server] Cloudinary upload failed:", {
               message: uploadError.message,
-              name: uploadError.name,
-              http_code: uploadError.http_code,
-              stack: uploadError.stack,
             });
             return res.status(500).json({
               message: "Cloudinary upload failed: " + uploadError.message,
             });
           }
-        } else {
-          console.log(
-            "[Server] No violation in details, skipping Cloudinary upload"
-          );
         }
-      } else {
-        console.log(
-          "[Server] No file or details provided, skipping Cloudinary upload"
-        );
       }
 
       const log = new ProctoringLog({
@@ -110,28 +99,25 @@ router.post(
         snapshot_url: snapshotUrl,
       });
     } catch (err) {
-      console.error("[Server] Error in /video-feed:", err);
+      console.error("[Server] Error in /video-feed:", err.message);
       res.status(500).json({ message: err.message });
     }
   }
 );
+
 router.get("/test-cloudinary", async (req, res) => {
   try {
     const result = await cloudinary.uploader.upload(
-      "https://picsum.photos/150", // Use a different reliable URL
+      "https://picsum.photos/150",
       { folder: "test_uploads" }
     );
     res.json({ success: true, url: result.secure_url });
   } catch (err) {
-    console.error("[Server] Cloudinary test error:", {
-      message: err.message,
-      name: err.name,
-      http_code: err.http_code,
-      stack: err.stack,
-    });
+    console.error("[Server] Cloudinary test error:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 router.post("/window-event", auth(["student"]), async (req, res) => {
   try {
     const { testid, event, details } = req.body;
@@ -143,7 +129,7 @@ router.post("/window-event", auth(["student"]), async (req, res) => {
 
     const test = await Test.findOne({ test_id: testid });
     if (!test) {
-      return res.status(400).json({ message: "Test not found" });
+      return res.status(404).json({ message: "Test not found" });
     }
 
     const log = new WindowEstimationLog({
@@ -158,13 +144,14 @@ router.post("/window-event", auth(["student"]), async (req, res) => {
     console.log("[Server] Window Event Logged:", { testid, event });
     res.json({ message: "Log saved" });
   } catch (err) {
-    console.error("[Server] Error in /window-event:", err);
+    console.error("[Server] Error in /window-event:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 router.get("/livemonitoringtid", auth(["professor"]), async (req, res) => {
   try {
+    console.log("[Server] /livemonitoringtid - User:", req.user);
     const now = new Date();
     const tests = await Test.find({
       professor_id: req.user.id,
@@ -173,10 +160,15 @@ router.get("/livemonitoringtid", auth(["professor"]), async (req, res) => {
     });
 
     const testIds = tests.map((t) => t.test_id);
-    console.log("[Server] Matching Test IDs:", testIds);
+    console.log("[Server] /livemonitoringtid - Test IDs:", testIds);
+    if (testIds.length === 0) {
+      return res
+        .status(404)
+        .json({ message: "No active tests found for this professor" });
+    }
     res.json({ testIds });
   } catch (err) {
-    console.error("[Server] Error in /livemonitoringtid:", err);
+    console.error("[Server] Error in /livemonitoringtid:", err.message);
     res.status(500).json({ message: "Failed to fetch test IDs" });
   }
 });
@@ -184,6 +176,12 @@ router.get("/livemonitoringtid", auth(["professor"]), async (req, res) => {
 router.post("/live-monitoring", auth(["professor"]), async (req, res) => {
   try {
     const { choosetid } = req.body;
+    console.log(
+      "[Server] /live-monitoring - User:",
+      req.user,
+      "Test ID:",
+      choosetid
+    );
     if (!choosetid) {
       return res.status(400).json({ message: "Test ID is required" });
     }
@@ -194,8 +192,10 @@ router.post("/live-monitoring", auth(["professor"]), async (req, res) => {
     });
     if (!test) {
       return res
-        .status(400)
-        .json({ message: "Test not found or unauthorized" });
+        .status(404)
+        .json({
+          message: "Test not found or you are not the assigned professor",
+        });
     }
 
     const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
@@ -222,7 +222,7 @@ router.post("/live-monitoring", auth(["professor"]), async (req, res) => {
           timestamp: { $gte: thirtyMinutesAgo },
         },
       },
-      { $sort: { timestamp: -1 } }, // Corrected line
+      { $sort: { timestamp: -1 } },
       {
         $group: {
           _id: "$student_id",
@@ -270,24 +270,32 @@ router.post("/live-monitoring", auth(["professor"]), async (req, res) => {
       },
     ]);
 
-    console.log("[Server] Aggregated Proctor Logs:", proctorLogs);
+    console.log("[Server] /live-monitoring - Proctor Logs:", proctorLogs);
     res.json({ data: proctorLogs });
   } catch (err) {
-    console.error("[Server] Error in /live-monitoring:", err);
+    console.error("[Server] Error in /live-monitoring:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 router.get("/logs/:test_id", auth(["professor"]), async (req, res) => {
   try {
+    console.log(
+      "[Server] /logs/:test_id - User:",
+      req.user,
+      "Test ID:",
+      req.params.test_id
+    );
     const test = await Test.findOne({
       test_id: req.params.test_id,
       professor_id: req.user.id,
     });
     if (!test) {
       return res
-        .status(400)
-        .json({ message: "Test not found or unauthorized" });
+        .status(404)
+        .json({
+          message: "Test not found or you are not the assigned professor",
+        });
     }
 
     const proctorLogs = await ProctoringLog.find({
@@ -315,7 +323,7 @@ router.get("/logs/:test_id", auth(["professor"]), async (req, res) => {
           email: log.student_id?.email || "Unknown",
           name: log.student_id?.name || "Unknown",
         },
-        snapshot_url: log.snapshot_url, // Include snapshot_url
+        snapshot_url: log.snapshot_url,
       })),
       ...windowLogs.map((log) => ({
         _id: log._id,
@@ -327,20 +335,17 @@ router.get("/logs/:test_id", auth(["professor"]), async (req, res) => {
           email: log.student_id?.email || "Unknown",
           name: log.student_id?.name || "Unknown",
         },
-        snapshot_url: null, // Window logs don't have snapshots
+        snapshot_url: null,
       })),
     ];
 
     console.log("[Server] Logs Fetched:", {
       testId: req.params.test_id,
       totalLogs: logs.length,
-      proctorLogs: proctorLogs.length,
-      windowLogs: windowLogs.length,
-      logsWithSnapshot: logs.filter((log) => log.snapshot_url).length,
     });
     res.json({ logs });
   } catch (err) {
-    console.error("[Server] Error in /logs/:test_id:", err);
+    console.error("[Server] Error in /logs/:test_id:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
@@ -348,6 +353,11 @@ router.get("/logs/:test_id", auth(["professor"]), async (req, res) => {
 router.post("/signal", auth(["student", "professor"]), async (req, res) => {
   try {
     const { test_id, student_id, type, data } = req.body;
+    console.log("[Server] /signal - User:", req.user, "Payload:", {
+      test_id,
+      student_id,
+      type,
+    });
     if (!test_id || !student_id || !type || !data) {
       return res.status(400).json({ message: "Missing required fields" });
     }
@@ -356,36 +366,70 @@ router.post("/signal", auth(["student", "professor"]), async (req, res) => {
     await log.save();
     res.json({ message: "Signal stored", log_id: log._id });
   } catch (err) {
-    console.error("[Server] Signal Error:", err);
+    console.error("[Server] Signal Error:", err.message);
     res.status(500).json({ message: err.message });
   }
 });
 
 router.get("/signal/:test_id", auth(["professor"]), async (req, res) => {
   try {
+    console.log(
+      "[Server] /signal/:test_id - User:",
+      req.user,
+      "Test ID:",
+      req.params.test_id
+    );
     const { test_id } = req.params;
+    const signals = await Test.findOne({
+      test_id: req.params.test_id,
+      professor_id: req.user.id,
+    });
+    if (!signals) {
+      return res
+        .status(404)
+        .json({
+          message: "Test not found or you are not the assigned professor",
+        });
+    }
     const logs = await SignalingLog.find({ test_id })
       .sort({ timestamp: -1 })
       .limit(50);
     res.json({ signals: logs });
   } catch (err) {
-    console.error("[Server] Signal Fetch Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error("[Server] Signal Fetch Error:", err.message);
+    res.status(500).json({ message: "Failed to fetch signals" });
   }
 });
 
 router.get(
   "/signal/:test_id/:student_id",
-  auth(["professor", "student"]),
+  auth(["student", "professor"]),
   async (req, res) => {
     try {
+      const { res } = await Test.findOne({
+        test_id: req.params.test_id,
+        professor_id: req.user.id,
+      });
+      if (!res) {
+        return res
+          .status(404)
+          .json({
+            message: "Test not found or you are not the assigned professor",
+          });
+      }
       const { test_id, student_id } = req.params;
+      console.log(
+        "[Server] /signal/:test_id/:student_id - User:",
+        req.user,
+        "Params:",
+        { test_id, student_id }
+      );
       const logs = await SignalingLog.find({ test_id, student_id })
         .sort({ timestamp: -1 })
         .limit(50);
       res.json({ signals: logs });
     } catch (err) {
-      console.error("[Server] Signal Fetch Error:", err);
+      console.error("[Server] Signal Fetch Error:", err.message);
       res.status(500).json({ message: err.message });
     }
   }
@@ -394,6 +438,10 @@ router.get(
 router.post("/request-offer", auth(["professor"]), async (req, res) => {
   try {
     const { test_id, student_id } = req.body;
+    console.log("[Server] /request-offer - User:", req.user, "Payload:", {
+      test_id,
+      student_id,
+    });
     if (!test_id || !student_id) {
       return res
         .status(400)
@@ -403,8 +451,10 @@ router.post("/request-offer", auth(["professor"]), async (req, res) => {
     const test = await Test.findOne({ test_id, professor_id: req.user.id });
     if (!test) {
       return res
-        .status(400)
-        .json({ message: "Test not found or unauthorized" });
+        .status(404)
+        .json({
+          message: "Test not found or you are not the assigned professor",
+        });
     }
 
     const log = new SignalingLog({
@@ -419,7 +469,7 @@ router.post("/request-offer", auth(["professor"]), async (req, res) => {
     console.log("[Server] Offer request sent to student:", student_id);
     res.json({ message: "Offer request sent", log_id: log._id });
   } catch (err) {
-    console.error("[Server] Error in /request-offer:", err);
+    console.error("[Server] Error in /request-offer:", err.message);
     res.status(500).json({ message: err.message });
   }
 });

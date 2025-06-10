@@ -1,7 +1,5 @@
-// src/context/AuthProvider.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-// import * as faceapi from "face-api.js"; // 👈 Commented out face-api
 import { AuthContext } from './AuthContext';
 
 export const AuthProvider = ({ children }) => {
@@ -20,7 +18,8 @@ export const AuthProvider = ({ children }) => {
           setUser(res.data.user);
           setLoading(false);
         })
-        .catch(() => {
+        .catch(err => {
+          console.error('Auth check error:', err.response?.data || err.message);
           localStorage.removeItem('token');
           setLoading(false);
           setError('Failed to authenticate. Please log in again.');
@@ -30,27 +29,9 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // const captureFace = async (videoRef) => {
-  //   try {
-  //     await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
-  //     await faceapi.nets.faceLandmark68Net.loadFromUri("/models");
-  //     const detections = await faceapi.detectSingleFace(
-  //       videoRef.current,
-  //       new faceapi.TinyFaceDetectorOptions()
-  //     );
-  //     if (!detections) throw new Error("No face detected");
-  //     const canvas = faceapi.createCanvasFromMedia(videoRef.current);
-  //     faceapi.matchDimensions(canvas, videoRef.current);
-  //     return canvas.toDataURL();
-  //   } catch (err) {
-  //     console.error(err);
-  //     throw new Error("Face capture failed. Please try again.");
-  //   }
-  // };
-
-  const login = async (email, password, user_type, videoRef = null) => {
+  const login = async (email, password, user_type) => {
     try {
-      // Clear previous token if any
+      // Clear previous token
       localStorage.removeItem('token');
 
       const res = await axios.post(
@@ -59,7 +40,6 @@ export const AuthProvider = ({ children }) => {
           email,
           password,
           user_type,
-          forceLogin: true, // ✅ Add this line to allow forced login
         },
         {
           headers: {
@@ -110,7 +90,6 @@ export const AuthProvider = ({ children }) => {
         logout,
         loading,
         error,
-        // captureFace, // 👈 Commented out export of face capture
       }}
     >
       {children}
