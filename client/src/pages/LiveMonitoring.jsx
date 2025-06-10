@@ -34,9 +34,7 @@ function LiveMonitoring() {
   const accentColor = '#93c5fd';
 
   const logEvent = (event, details) => {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[LiveMonitoring] ${event}:`, details);
-    }
+    console.log(`[LiveMonitoring] ${event}:`, details);
   };
 
   const updateConnectionStatus = (studentId, status, error = null) => {
@@ -48,7 +46,10 @@ function LiveMonitoring() {
   };
 
   useEffect(() => {
-    logEvent('useEffect mounted', { user: stableUser });
+    logEvent('useEffect mounted', {
+      user: stableUser,
+      token: localStorage.getItem('token'),
+    });
     isMountedRef.current = true;
 
     if (!stableUser || !stableUser.id) {
@@ -90,19 +91,30 @@ function LiveMonitoring() {
     const fetchTestIds = async () => {
       try {
         setLoading(true);
+        logEvent('Fetching test IDs', { token });
         const res = await axios.get(
           `${API_BASE_URL}/api/proctor/livemonitoringtid`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        logEvent('fetchTestIds response', {
+          status: res.status,
+          data: res.data,
+        });
         const fetchedTestIds = Array.isArray(res.data.testIds)
           ? res.data.testIds
           : [];
         setTestIds(fetchedTestIds);
         if (fetchedTestIds.length === 0) {
-          setError('No active tests found for monitoring.');
+          setError(
+            'No active tests found for monitoring. Create a test first.'
+          );
         }
       } catch (err) {
-        logEvent('Fetch Test IDs Error', { message: err.message });
+        logEvent('fetchTestIds error', {
+          status: err.response?.status,
+          message: err.response?.data?.message || err.message,
+          data: err.response?.data,
+        });
         setError(err.response?.data?.message || 'Failed to load test IDs');
       } finally {
         setLoading(false);
@@ -239,6 +251,10 @@ function LiveMonitoring() {
             },
           }
         );
+        logEvent('pollSignals response', {
+          status: res.status,
+          data: res.data,
+        });
         const signals = res.data.signals || [];
         for (const signal of signals) {
           const { student_id, type, data } = signal;
@@ -254,7 +270,10 @@ function LiveMonitoring() {
           }
         }
       } catch (err) {
-        logEvent('Signal Polling Error', { message: err.message });
+        logEvent('pollSignals error', {
+          status: err.response?.status,
+          message: err.response?.data?.message || err.message,
+        });
       }
     };
 
@@ -275,7 +294,11 @@ function LiveMonitoring() {
       );
       logEvent('Requested new offer', { studentId });
     } catch (err) {
-      logEvent('Error requesting offer', { studentId, error: err.message });
+      logEvent('Error requesting offer', {
+        studentId,
+        status: err.response?.status,
+        message: err.response?.data?.message || err.message,
+      });
     }
   };
 
@@ -288,11 +311,13 @@ function LiveMonitoring() {
       setLoading(true);
       setError('');
       const token = localStorage.getItem('token');
+      logEvent('handleSubmit', { token, testId: selectedTestId });
       const res = await axios.post(
         `${API_BASE_URL}/api/proctor/live-monitoring`,
         { choosetid: selectedTestId },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      logEvent('handleSubmit response', { status: res.status, data: res.data });
       const data = Array.isArray(res.data.data) ? res.data.data : [];
       const uniqueStudents = data.map(item => ({
         student_id: item.student_id,
@@ -308,7 +333,11 @@ function LiveMonitoring() {
       setConnectionStatuses(newStatuses);
       uniqueStudents.forEach(({ student_id }) => requestNewOffer(student_id));
     } catch (err) {
-      logEvent('Live Monitoring Error', { error: err.message });
+      logEvent('handleSubmit error', {
+        status: err.response?.status,
+        message: err.response?.data?.message || err.message,
+        data: err.response?.data,
+      });
       setError(err.response?.data?.message || 'Failed to load monitoring data');
     } finally {
       setLoading(false);
@@ -319,20 +348,29 @@ function LiveMonitoring() {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
+      logEvent('refreshTestIds', { token });
       const res = await axios.get(
         `${API_BASE_URL}/api/proctor/livemonitoringtid`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      logEvent('refreshTestIds response', {
+        status: res.status,
+        data: res.data,
+      });
       const fetchedTestIds = Array.isArray(res.data.testIds)
         ? res.data.testIds
         : [];
       setTestIds(fetchedTestIds);
       if (fetchedTestIds.length === 0) {
-        setError('No active tests found for monitoring.');
+        setError('No active tests found for monitoring. Create a test first.');
       } else {
         setError('');
       }
     } catch (err) {
+      logEvent('refreshTestIds error', {
+        status: err.response?.status,
+        message: err.response?.data?.message || err.message,
+      });
       setError(err.response?.data?.message || 'Failed to refresh test IDs');
     } finally {
       setLoading(false);
@@ -423,7 +461,6 @@ function LiveMonitoring() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-gray-50 pt-0 pb-12 relative overflow-hidden">
-      {/* Animated Background Pattern */}
       <motion.svg
         className="absolute inset-0 z-0"
         width="100%"
@@ -461,7 +498,6 @@ function LiveMonitoring() {
         />
       </motion.svg>
 
-      {/* Hero Section */}
       <motion.section
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -570,7 +606,6 @@ function LiveMonitoring() {
         </div>
       </motion.section>
 
-      {/* Live Monitoring Section */}
       <section
         id="live-monitoring"
         className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 relative z-10"
@@ -691,12 +726,12 @@ function LiveMonitoring() {
                                 <Badge
                                   className={`${getStatusColor(connectionStatus.status)} text-white`}
                                 >
-                                  {connectionStatus.status?.replace('_', ' ') ||
-                                    'unknown'}
+                                  {connectionStatus.status?.replace('_', ' ')}
+                                  'unknown'
                                 </Badge>
                               </div>
                               <div className="text-gray-500 text-sm mb-2">
-                                ID: {student_id} | {email || 'No email'}
+                                ID: {student_id} | {email}
                               </div>
                               <div
                                 className="relative bg-gray-800 rounded-lg overflow-hidden"
@@ -736,7 +771,9 @@ function LiveMonitoring() {
                               <div className="flex justify-between mt-2 text-sm text-gray-500">
                                 <span>
                                   Last updated:{' '}
-                                  {new Date(connectionStatus.timestamp)
+                                  {new Date(
+                                    connectionStatus.timestamp || Date.now()
+                                  )
                                     .toTimeString()
                                     .slice(0, 8)}
                                 </span>
@@ -772,12 +809,12 @@ function LiveMonitoring() {
                   <p className="mt-2 text-lg text-gray-600">Loading data...</p>
                 </motion.div>
               )}
-              {!loading && selectedTestId && students.length === 0 && (
+              {!loading && testIds.length === 0 && (
                 <motion.div variants={itemVariants} className="mt-6">
                   <Alert variant="warning">
                     <AlertDescription>
-                      No students are currently available for this test. Ensure
-                      students are active and have joined the test.
+                      No tests are currently available for monitoring. Please
+                      create a test first.
                     </AlertDescription>
                   </Alert>
                 </motion.div>

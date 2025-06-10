@@ -1,0 +1,89 @@
+
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+\definecolor{primary}{HTML}{060270}
+\definecolor{primarylight}{HTML}{3B82F6}
+\definecolor{primarydark}{HTML}{1A1A8F}
+\definecolor{greenpass}{HTML}{22C55E}
+\definecolor{redfail}{HTML}{EF4444}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\color{primary}\textbf{Practical Question and Answer}}
+\fancyhead[R]{\color{primary}Page \thepage\ of \pageref{LastPage}}
+\fancyfoot[C]{\color{primarydark}Generated on June 10, 2025}
+
+\titleformat{\section}{\large\bfseries\color{primary}}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries\color{primarydark}}{\thesubsection}{1em}{}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=true,
+  frame=single,
+  rulecolor=\color{primarylight},
+  framerule=1pt,
+  framesep=5pt,
+  backgroundcolor=\color{gray!10},
+  keywordstyle=\color{primarylight},
+  stringstyle=\color{primarydark},
+}
+
+\begin{document}
+
+\section*{Practical Question and Answer}
+
+\section{Question}
+Write a js program to display 20+10 = 30
+
+
+\section{Student Answer (Language: javascript)}
+\subsection{Code}
+\begin{lstlisting}
+let n = 20+10
+console.log(n)
+\end{lstlisting}
+\subsection{Output}
+30
+
+
+
+\section{Test Cases}
+
+\begin{itemize}
+
+  \item \textbf{Test Case 1}
+  \begin{description}
+    \item[Input:] 20+10
+    \item[Expected Output:] 30
+    \item[Marks:] 0
+    \item[Status:] Test not executed
+  \end{description}
+
+  \item \textbf{Test Case 2}
+  \begin{description}
+    \item[Input:] 10+10
+    \item[Expected Output:] 20
+    \item[Marks:] 0
+    \item[Status:] Test not executed
+  \end{description}
+
+  \item \textbf{Test Case 3}
+  \begin{description}
+    \item[Input:] 10+20
+    \item[Expected Output:] 10
+    \item[Marks:] 0
+    \item[Status:] Test not executed
+  \end{description}
+\end{itemize>
+
+\end{document}

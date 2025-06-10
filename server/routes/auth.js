@@ -7,7 +7,7 @@ const User = require("../models/User");
 const sendEmail = require("../utils/email");
 const { verifyFace } = require("../utils/faceRecognition");
 const auth = require("../middleware/auth");
-const Otp = require("../models/Otp"); //
+const Otp = require("../models/Otp");
 const tempUsers = {};
 
 router.post("/register", async (req, res) => {
@@ -101,16 +101,10 @@ router.post("/login", async (req, res) => {
     if (!isMatch)
       return res.status(400).json({ message: "Invalid credentials" });
 
-    if (user.user_login && !forceLogin)
-      return res.status(400).json({ message: "User already logged in" });
-
     // Optional: Uncomment to enable face verification
     // const isFaceMatch = await verifyFace(user_image, user.user_image);
     // if (!isFaceMatch)
     //   return res.status(400).json({ message: "Face verification failed" });
-
-    user.user_login = true;
-    await user.save();
 
     const token = jwt.sign(
       { id: user._id, user_type },
@@ -125,13 +119,9 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 // Logout
 router.post("/logout", auth(), async (req, res) => {
   try {
-    const user = await User.findById(req.user.id);
-    user.user_login = false;
-    await user.save();
     res.json({ message: "Logged out" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -175,7 +165,7 @@ router.post("/reset-password/:token", async (req, res) => {
     user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-    await user.save();
+    user.save();
 
     res.json({ message: "Password reset successful" });
   } catch (err) {
@@ -201,18 +191,15 @@ router.post("/change-password", auth(), async (req, res) => {
 });
 
 // Get Current User
-router.get("/me", async (req, res) => {
+router.get("/me", auth(), async (req, res) => {
   try {
-    const email = req.query.email || req.user?.email || "test@example.com";
-    const user = await User.findOne({ email: email.toLowerCase() }).select(
-      "-password"
-    );
+    const user = await User.findById(req.user.id).select("-password");
     if (!user)
       return res.status(404).json({ user: null, message: "User not found" });
     res.json({ user });
   } catch (err) {
     console.error("GetMe error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(401).json({ message: "Unauthorized" });
   }
 });
 
